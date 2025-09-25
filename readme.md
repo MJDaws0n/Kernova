@@ -11,4 +11,10 @@ make -C ./kernova && ./kernova/build/kernova_bin example.exe
 3.	PE Signature → file_bytes[e_lfanew:e_lfanew+4]
 4.	COFF Header → file_bytes[e_lfanew+4:e_lfanew+24]
 5.	Optional Header → file_bytes[e_lfanew+24:e_lfanew+24+OptionalHeaderSize]
-6.	Section Headers → file_bytes[e_lfanew+24+OptionalHeaderSize: …]
+6.	Section Headers → file_bytes[e_lfanew+24+OptionalHeaderSize: e_lfanew+24+OptionalHeaderSize + NumberOfSections*40]
+
+## How runtime operation will commence
+- Load all the variables initally and set them into an array that i have in C.
+- Run the machine code in .txt and everytime a variable is referenced, instead point it to the correct memory location of it within my array.
+- Register setting an executaion should be fine as long as it doessn't get overidden by the app itself, we could handle registers manually here but then the app would most likley run too slow.
+- Magic stuff right here
