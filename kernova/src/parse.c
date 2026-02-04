@@ -5,6 +5,7 @@
 #include "main.h"
 #include "parse.h"
 #include "parse_sections.h"
+#include "execute.h"
 
 struct File {
     char* path;
@@ -37,12 +38,12 @@ static unsigned short get_amount_of_sections(const char* coff_header);
 static char* get_SECTION_headers(const char* data, int offset, int optional_header_size, int size);
 static unsigned int get_e_lfanew(const char* data);
 
-// New helpers to dump target sections (.data, .rdata, .pdata)
-static void dump_section_bytes(const unsigned char* file_data, size_t file_len,
-                               const SectionObject* obj, size_t bytes_per_line);
-static void dump_target_sections(const unsigned char* file_data, size_t file_len,
-                                 const char* raw_section_headers,
-                                 int number_of_sections);
+// Commented out: Forward declarations for section dump helpers (not used - reduce spam)
+// static void dump_section_bytes(const unsigned char* file_data, size_t file_len,
+//                                const SectionObject* obj, size_t bytes_per_line);
+// static void dump_target_sections(const unsigned char* file_data, size_t file_len,
+//                                  const char* raw_section_headers,
+//                                  int number_of_sections);
 
 /**
  * Begins to parse the executable file
@@ -88,7 +89,8 @@ void parse(const char* file) {
     debug_print("Extracting OptionalHeaderSize from COFF_header...\n");
     f.OptionalHeaderSize = (unsigned char)f.COFF_header[16] | ((unsigned char)f.COFF_header[17] << 8);
 
-    printf(f.OptionalHeaderSize == 224 ? "Executable is 32 bit\n" : f.OptionalHeaderSize == 240 ? "Executable is 64 bit\n" : "Unknown PE format\n");
+    int is_64bit = (f.OptionalHeaderSize == 240);
+    printf(f.OptionalHeaderSize == 224 ? "Executable is 32 bit\n" : is_64bit ? "Executable is 64 bit\n" : "Unknown PE format\n");
 
     debug_print("Extracting OPTIONAL_header...\n");
     f.OPTIONAL_header = get_OPTIONAL_header(p.data, f.e_lfanew, f.OptionalHeaderSize);
@@ -99,35 +101,65 @@ void parse(const char* file) {
     debug_print("Allocated %d bytes for section headers\n", f.amount_of_sections * 40);
 
     printf("Number of sections: %d\n", f.amount_of_sections);
-    printf("Optional header size: %d\n", f.OptionalHeaderSize);
+    // printf("Optional header size: %d\n", f.OptionalHeaderSize);  // Commented out - not essential
 
     debug_print("Extracting SECTION_headers...\n");
     f.SECTION_headers = get_SECTION_headers(p.data, f.e_lfanew, f.OptionalHeaderSize, f.amount_of_sections);
 
-    parse_sections(f.SECTION_headers);
+    // parse_sections(f.SECTION_headers);  // Commented out - spammy legacy section dump
 
-    // New detailed dump of .data / .rdata / .pdata sections
-    dump_target_sections((const unsigned char*)p.data, p.length, f.SECTION_headers, f.amount_of_sections);
+    // Commented out: Detailed section dumps that spam the console
+    // dump_target_sections((const unsigned char*)p.data, p.length, f.SECTION_headers, f.amount_of_sections);
     
-        // Example: Collect sections and enumerate every byte as individual variables, then print JSON
-        SectionSet byte_enum_set;
-        if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
-                                             (const unsigned char*)p.data, p.length,
-                                             SECTION_ENUM_BYTES, &byte_enum_set) == 0) {
-            printf("\nJSON style output (byte enumeration) for target sections:\n");
-            print_section_set_json(&byte_enum_set);
-            section_set_free(&byte_enum_set);
-        }
+    // Commented out: JSON byte/dword enumeration output - very verbose
+    /*
+    // Example: Collect sections and enumerate every byte as individual variables, then print JSON
+    SectionSet byte_enum_set;
+    if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
+                                         (const unsigned char*)p.data, p.length,
+                                         SECTION_ENUM_BYTES, &byte_enum_set) == 0) {
+        printf("\nJSON style output (byte enumeration) for target sections:\n");
+        print_section_set_json(&byte_enum_set);
+        section_set_free(&byte_enum_set);
+    }
 
-        // Example: Collect again enumerating dwords (4-byte groups)
-        SectionSet dword_enum_set;
-        if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
-                                             (const unsigned char*)p.data, p.length,
-                                             SECTION_ENUM_DWORDS, &dword_enum_set) == 0) {
-            printf("\nJSON style output (dword enumeration) for target sections:\n");
-            print_section_set_json(&dword_enum_set);
-            section_set_free(&dword_enum_set);
-        }
+    // Example: Collect again enumerating dwords (4-byte groups)
+    SectionSet dword_enum_set;
+    if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
+                                         (const unsigned char*)p.data, p.length,
+                                         SECTION_ENUM_DWORDS, &dword_enum_set) == 0) {
+        printf("\nJSON style output (dword enumeration) for target sections:\n");
+        print_section_set_json(&dword_enum_set);
+        section_set_free(&dword_enum_set);
+    }
+    */
+    
+    // ==========================================================================
+    // EXECUTION ENGINE - Execute instructions and output each one
+    // ==========================================================================
+    printf("\nInitializing execution engine...\n");
+    
+    ExecutionContext exec_ctx;
+    int init_result = execute_init(&exec_ctx, (const unsigned char*)p.data, p.length, is_64bit);
+    
+    if (init_result != 0) {
+        fprintf(stderr, "Error: Failed to initialize execution engine (code: %d)\n", init_result);
+        free(p.data);
+        return;
+    }
+    
+    printf("Execution engine initialized successfully.\n");
+    
+    // Execute up to 20000 instructions (safety limit)
+    // Each instruction is printed as it executes
+    (void)execute_run(&exec_ctx, 20000);
+    
+    // Print final CPU state
+    print_cpu_state(&exec_ctx.cpu, is_64bit);
+    
+    // Cleanup
+    execute_cleanup(&exec_ctx);
+    free(p.data);
 }
 
 /**
@@ -172,7 +204,7 @@ static ByteData get_byte_data(const char* file) {
     size_t read_bytes = fread(result.data, 1, filesize, f);
     fclose(f);
 
-    if (read_bytes != filesize) {
+    if (read_bytes != (size_t)filesize) {
         free(result.data);
         result.data = NULL;
         return result;
@@ -339,8 +371,10 @@ char* bytes_to_hex(const unsigned char* data, size_t len) {
 }
 
 // ---------------------------------------------------------------------------
-// New implementation for dumping specific sections
+// Section dumping functions - Commented out to reduce console spam
+// These can be re-enabled for detailed section analysis when needed
 // ---------------------------------------------------------------------------
+/*
 static void dump_section_bytes(const unsigned char* file_data, size_t file_len,
                                const SectionObject* obj, size_t bytes_per_line) {
     const SectionHeader* h = &obj->header;
@@ -392,3 +426,4 @@ static void dump_target_sections(const unsigned char* file_data, size_t file_len
     }
     section_set_free(&set);
 }
+*/

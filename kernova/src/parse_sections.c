@@ -72,10 +72,14 @@ static SectionObject* ensure_section_object(SectionSet* set, const SectionHeader
 void parse_sections(const char* sections) {
     debug_print("Parsing sections (legacy)...\n");
     if (!sections) return;
+    // Commented out: Spammy section header output for each section
+    // This was printing detailed info for every section which clutters the console
+    /*
     for (int i = 0; i < 5; i++) { // Legacy fixed count
         SectionHeader sh = parse_section_header(sections + (i * 40));
         print_section_header(&sh);
     }
+    */
 }
 
 // --- New API Implementation ------------------------------------------------

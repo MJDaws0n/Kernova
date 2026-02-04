@@ -5,8 +5,8 @@
 #include "main.h"
 #include "parse.h"
 
-char* version = "v0.1 (PoC)";
-int debug = 1;
+char* version = "v0.2 (Execution Engine)";
+int debug = 0;  // Set to 0 to reduce console spam - only show instruction execution
 
 /**
  * Main function
