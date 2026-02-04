@@ -37,6 +37,13 @@ static unsigned short get_amount_of_sections(const char* coff_header);
 static char* get_SECTION_headers(const char* data, int offset, int optional_header_size, int size);
 static unsigned int get_e_lfanew(const char* data);
 
+// New helpers to dump target sections (.data, .rdata, .pdata)
+static void dump_section_bytes(const unsigned char* file_data, size_t file_len,
+                               const SectionObject* obj, size_t bytes_per_line);
+static void dump_target_sections(const unsigned char* file_data, size_t file_len,
+                                 const char* raw_section_headers,
+                                 int number_of_sections);
+
 /**
  * Begins to parse the executable file
  * @param file The directory of the file to parse
@@ -98,6 +105,29 @@ void parse(const char* file) {
     f.SECTION_headers = get_SECTION_headers(p.data, f.e_lfanew, f.OptionalHeaderSize, f.amount_of_sections);
 
     parse_sections(f.SECTION_headers);
+
+    // New detailed dump of .data / .rdata / .pdata sections
+    dump_target_sections((const unsigned char*)p.data, p.length, f.SECTION_headers, f.amount_of_sections);
+    
+        // Example: Collect sections and enumerate every byte as individual variables, then print JSON
+        SectionSet byte_enum_set;
+        if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
+                                             (const unsigned char*)p.data, p.length,
+                                             SECTION_ENUM_BYTES, &byte_enum_set) == 0) {
+            printf("\nJSON style output (byte enumeration) for target sections:\n");
+            print_section_set_json(&byte_enum_set);
+            section_set_free(&byte_enum_set);
+        }
+
+        // Example: Collect again enumerating dwords (4-byte groups)
+        SectionSet dword_enum_set;
+        if (parse_sections_collect_with_data(f.SECTION_headers, f.amount_of_sections,
+                                             (const unsigned char*)p.data, p.length,
+                                             SECTION_ENUM_DWORDS, &dword_enum_set) == 0) {
+            printf("\nJSON style output (dword enumeration) for target sections:\n");
+            print_section_set_json(&dword_enum_set);
+            section_set_free(&dword_enum_set);
+        }
 }
 
 /**
@@ -306,4 +336,59 @@ char* bytes_to_hex(const unsigned char* data, size_t len) {
 
     hex[len*2] = '\0';
     return hex;
+}
+
+// ---------------------------------------------------------------------------
+// New implementation for dumping specific sections
+// ---------------------------------------------------------------------------
+static void dump_section_bytes(const unsigned char* file_data, size_t file_len,
+                               const SectionObject* obj, size_t bytes_per_line) {
+    const SectionHeader* h = &obj->header;
+    if (h->PointerToRawData + h->SizeOfRawData > file_len) {
+        printf("[!] Section %s out of range (ptr=0x%X size=0x%X file_len=%zu)\n",
+               obj->name, h->PointerToRawData, h->SizeOfRawData, file_len);
+        return;
+    }
+
+    const unsigned char* raw = file_data + h->PointerToRawData;
+    printf("\n== Dump of %s (%u bytes at file offset 0x%X) ==\n",
+           obj->name, h->SizeOfRawData, h->PointerToRawData);
+
+    for (uint32_t i = 0; i < h->SizeOfRawData; i += bytes_per_line) {
+        printf("%08X  ", h->PointerToRawData + i);
+        uint32_t line_len = (h->SizeOfRawData - i < bytes_per_line)
+                              ? (h->SizeOfRawData - i)
+                              : bytes_per_line;
+        for (uint32_t j = 0; j < bytes_per_line; ++j) {
+            if (j < line_len) printf("%02X ", raw[i + j]); else printf("   ");
+        }
+        printf(" ");
+        for (uint32_t j = 0; j < line_len; ++j) {
+            unsigned char c = raw[i + j];
+            printf("%c", (c >= 32 && c <= 126) ? c : '.');
+        }
+        printf("\n");
+    }
+}
+
+static void dump_target_sections(const unsigned char* file_data, size_t file_len,
+                                 const char* raw_section_headers,
+                                 int number_of_sections) {
+    if (!file_data || !raw_section_headers || number_of_sections <= 0) return;
+    SectionSet set;
+    if (parse_sections_collect(raw_section_headers, number_of_sections, &set) != 0) {
+        printf("Failed to collect target sections.\n");
+        return;
+    }
+    if (set.count == 0) {
+        printf("No target sections (.data/.rdata/.pdata) found.\n");
+        section_set_free(&set);
+        return;
+    }
+    for (size_t i = 0; i < set.count; ++i) {
+        const SectionObject* obj = &set.sections[i];
+        print_section_object(obj);
+        dump_section_bytes(file_data, file_len, obj, 16);
+    }
+    section_set_free(&set);
 }
