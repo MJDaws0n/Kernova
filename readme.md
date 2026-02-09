@@ -1,4 +1,4 @@
-# Kernova
+# Kernova. (Not possible without a hypervisor)
 https://mjdawson.net/projects/kernova
 
 A virtual kernel / x86-64 emulator that parses PE (Windows) executables and executes their instructions.
@@ -54,4 +54,5 @@ Common x86-64 instructions including:
 
 ## Version History
 - **v0.2**: Execution Engine - Instruction tracing and emulation
+
 - **v0.1**: Proof of Concept - PE parsing and section analysis
